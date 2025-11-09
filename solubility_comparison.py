@@ -1,15 +1,14 @@
 #!/usr/bin/env python
-import sys
 import os
-import deepchem
-from deepchem.models import GraphConvModel, WeaveModel
-from deepchem.models.sklearn_models import RandomForestRegressor, SklearnModel
+os.environ["TF_USE_LEGACY_KERAS"] = "True"
 import pandas as pd
 from rdkit import Chem
+from sklearn.ensemble import RandomForestRegressor
 import itertools
 from esol import ESOLCalculator
 
 # Turn off TensorFlow logging
+import deepchem
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
@@ -34,7 +33,10 @@ def generate_prediction(input_file_name, model, featurizer, transformers):
     df = pd.read_csv(input_file_name)
     mol_list = [Chem.MolFromSmiles(x) for x in df.SMILES]
     val_feats = featurizer.featurize(mol_list)
-    res = model.predict_on_batch(val_feats, transformers)
+    if len(transformers) > 0:
+        res = model.predict_on_batch(val_feats, transformers)
+    else:
+        res = model.predict_on_batch(val_feats)
     # kind of a hack
     # seems like some models return a list of lists and others (e.g. RF) return a list
     # check to see if the first element in the returned array is a list, if so, flatten the list
@@ -50,20 +52,20 @@ def generate_prediction(input_file_name, model, featurizer, transformers):
 
 def generate_graph_conv_model():
     batch_size = 128
-    model = GraphConvModel(1, batch_size=batch_size, mode='regression')
+    model = deepchem.models.GraphConvModel(1, batch_size=batch_size, mode='regression')
     return model
 
 
 def generate_weave_model():
     batch_size = 64
-    model = WeaveModel(1, batch_size=batch_size, learning_rate=1e-3, use_queue=False, mode='regression')
+    model = deepchem.models.WeaveModel(1, batch_size=batch_size, learning_rate=1e-3, use_queue=False, mode='regression')
     return model
 
 
 def generate_rf_model():
     model_dir = "."
     sklearn_model = RandomForestRegressor(n_estimators=500)
-    return SklearnModel(sklearn_model, model_dir)
+    return deepchem.models.SklearnModel(sklearn_model, model_dir)
 
 
 # ---------------- Function to Run Models ----------------------#
@@ -94,17 +96,23 @@ def calc_esol(input_file_name, smiles_col="SMILES"):
 
 
 # ----------------- main ---------------------------------------------*
+import argparse
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input_file_name", type=str, default="dls_100_unique.csv")
+    parser.add_argument("--output_file_name", type=str, default="solubility_comparison.csv")
+    args = parser.parse_args()
+    
     training_file_name = "delaney.csv"
-    validation_file_name = "dls_100_unique.csv"
-    output_file_name = "solubility_comparison.csv"
+    validation_file_name = args.input_file_name
+    output_file_name = args.output_file_name
     task_list = ['measured log(solubility:mol/L)']
 
     print("=====ESOL=====")
     esol_df = calc_esol(validation_file_name)
 
     print("=====Random Forest=====")
-    featurizer = deepchem.feat.fingerprints.CircularFingerprint(size=1024)
+    featurizer = deepchem.feat.CircularFingerprint(size=1024)
     model_func = generate_rf_model
     rf_df = run_model(model_func, task_list, featurizer, False, training_file_name, validation_file_name, nb_epoch=-1)
 
