@@ -101,36 +101,59 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_file_name", type=str, default="dls_100_unique.csv")
     parser.add_argument("--output_file_name", type=str, default="solubility_comparison.csv")
+    parser.add_argument("--model_types", type=str, nargs="+", default=["all","esol","rf", "weave", "gc"], choices=["all","esol","rf", "weave", "gc"])
     args = parser.parse_args()
+    model_types = args.model_types
+    
+    if "all" in model_types:
+        model_types = ["esol", "rf", "weave", "gc"]
+    
     
     training_file_name = "delaney.csv"
     validation_file_name = args.input_file_name
+    validation_df = pd.read_csv(validation_file_name)
     output_file_name = args.output_file_name
     task_list = ['measured log(solubility:mol/L)']
 
     print("=====ESOL=====")
-    esol_df = calc_esol(validation_file_name)
+    if "esol" in model_types:
+        esol_df = calc_esol(validation_file_name)
+    else:
+        esol_df = None
 
     print("=====Random Forest=====")
-    featurizer = deepchem.feat.CircularFingerprint(size=1024)
-    model_func = generate_rf_model
-    rf_df = run_model(model_func, task_list, featurizer, False, training_file_name, validation_file_name, nb_epoch=-1)
+    if "rf" in model_types:
+        featurizer = deepchem.feat.CircularFingerprint(size=1024)
+        model_func = generate_rf_model
+        rf_df = run_model(model_func, task_list, featurizer, False, training_file_name, validation_file_name, nb_epoch=-1)
+    else:
+        rf_df = None
 
     print("=====Weave======")
-    featurizer = deepchem.feat.WeaveFeaturizer()
-    model_func = generate_weave_model
-    weave_df = run_model(model_func, task_list, featurizer, True, training_file_name, validation_file_name, nb_epoch=30)
+    if "weave" in model_types:
+        featurizer = deepchem.feat.WeaveFeaturizer()
+        model_func = generate_weave_model
+        weave_df = run_model(model_func, task_list, featurizer, True, training_file_name, validation_file_name, nb_epoch=30)
+    else:
+        weave_df = None
 
     print("=====Graph Convolution=====")
-    featurizer = deepchem.feat.ConvMolFeaturizer()
-    model_func = generate_graph_conv_model
-    gc_df = run_model(model_func, task_list, featurizer, True, training_file_name, validation_file_name, nb_epoch=20)
+    if "gc" in model_types:
+        featurizer = deepchem.feat.ConvMolFeaturizer()
+        model_func = generate_graph_conv_model
+        gc_df = run_model(model_func, task_list, featurizer, True, training_file_name, validation_file_name, nb_epoch=20)
+    else:
+        gc_df = None
 
-    output_df = pd.DataFrame(rf_df[["SMILES", "Chemical name", "LogS exp (mol/L)"]])
-    output_df["ESOL"] = esol_df["pred_vals"]
-    output_df["RF"] = rf_df["pred_vals"]
-    output_df["Weave"] = weave_df["pred_vals"]
-    output_df["GC"] = gc_df["pred_vals"]
+    output_df = pd.DataFrame(validation_df[["SMILES", "Chemical name", "LogS exp (mol/L)"]])
+    if esol_df is not None:
+        output_df["ESOL"] = esol_df["pred_vals"]
+    if rf_df is not None:
+        output_df["RF"] = rf_df["pred_vals"]
+    if weave_df is not None:
+        output_df["Weave"] = weave_df["pred_vals"]
+    if gc_df is not None:
+        output_df["GC"] = gc_df["pred_vals"]
     output_df.to_csv(output_file_name, index=False, float_format="%0.2f")
     print("wrote results to", output_file_name)
 
